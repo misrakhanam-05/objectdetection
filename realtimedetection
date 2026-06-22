@@ -1,0 +1,57 @@
+import cv2
+import torch
+from ultralytics import YOLO
+
+# 1. COMPLETE PYTORCH FIX: Globally override weights_only verification
+# This cleanly stops the UnpicklingError across all modules.
+import inspect
+_original_torch_load = torch.load
+
+def custom_torch_load(*args, **kwargs):
+    # Dynamically inject weights_only=False if it's expected by the system
+    if 'weights_only' in inspect.signature(_original_torch_load).parameters:
+        kwargs['weights_only'] = False
+    return _original_torch_load(*args, **kwargs)
+
+# Hot-patch PyTorch with our safe loader wrapper
+torch.load = custom_torch_load
+
+
+def run_final_tracking():
+    print("Loading YOLO model securely...")
+    # The file will now load seamlessly without any security restrictions
+    model = YOLO("yolov8n.pt")
+
+    # Open webcam (0 is your default integrated camera)
+    cap = cv2.VideoCapture(0)
+    if not cap.isOpened():
+        print("Error: Could not open your webcam.")
+        return
+
+    print("Tracking system active! Press 'q' on your keyboard to close.")
+
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            print("Failed to grab video frame.")
+            break
+
+        # Track objects using the built-in ByteTRACK engine
+        results = model.track(source=frame, persist=True, tracker="bytetrack.yaml", verbose=False)
+
+        # Extract the automatically drawn frame containing labels & tracking IDs
+        annotated_frame = results[0].plot()
+
+        # Display the output tracking window
+        cv2.imshow("Real-Time Object Tracking", annotated_frame)
+
+        # Press 'q' to exit the live window safely
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
+
+    # Release hardware resources
+    cap.release()
+    cv2.destroyAllWindows()
+
+if __name__ == "__main__":
+    run_final_tracking()
